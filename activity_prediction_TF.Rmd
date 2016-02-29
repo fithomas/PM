@@ -1,0 +1,120 @@
+---
+title: "Activity Prediction"
+author: "Thomas Fischer"
+date: "28.02.2016"
+output: html_document
+---
+
+# 1. Description
+The aim of this small sample analysis is to predict the activity of persons based on the data of accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data for this project comes from this [source](http://groupware.les.inf.puc-rio.br/har).
+
+The aim of this project is to predict the manner in which participants did the exercise, which means predicting the "classe" variable that is available in the training dataset.
+
+# 2. Analysis
+
+This section describes the analysis, which is based on following steps:
+
+* data loading and transformation
+* descriptive analysis
+* predictive analysis
+
+## 2.1 Data Loading
+In this first step, the training and testing data is loaded from the respective files in a csv format. Note, that you have to change some strings to NA, because otherwise the columns are treated as factors, even if they are numeric.
+
+```{r}
+library(caret)
+training = read.csv("~/Downloads/pml-training.csv",na.strings = c(""," ", "#DIV/0!", "NA"))
+testing = read.csv("~/Downloads/pml-testing.csv",na.strings = c("", " ", "#DIV/0!", "NA"))
+dim(training)
+dim(testing)
+```
+
+A short look at the column names outlines, that the last column name is different between training and testing.
+```{r}
+colnames(training) == colnames(testing) # problem_id remove this
+```
+
+## 2.2 Data Transformation
+### 2.2.1 Training and validation data set
+For training and validation, the training data is separated into a training and validation set.
+
+```{r}
+inTrain = createDataPartition(training$classe, p = 3/4)[[1]]
+training.train = training[ inTrain,]
+training.validation = training[-inTrain,]
+```
+
+### 2.2.2 Remove variables with near zero variance
+```{r}
+nzv <- nearZeroVar(training.train)
+training.train.filtered <- training.train[, -nzv]
+training.validation.filtered <- training.validation[, -nzv]
+testing.filtered <- testing[, -nzv]
+dim(training.train.filtered)
+dim(training.validation.filtered)
+dim(testing.filtered)
+```
+
+### 2.2.2 Remove other variables
+The timestamo is already present as a numerical value. Furthermore, the id variable for the data rows is removed for the analysis.
+```{r}
+library(dplyr)
+training.train.filtered <- select(training.train.filtered, -c(X,cvtd_timestamp))
+training.validation.filtered <- select(training.validation.filtered,-c(X,cvtd_timestamp))
+testing.filtered <- select(testing.filtered,-c(X,cvtd_timestamp))
+dim(training.train.filtered)
+dim(training.validation.filtered)
+dim(testing.filtered)
+```
+
+### 2.2.3 Transform factors to dummy variables
+Factors, such as the username are transferred to dummy variables.
+```{r}
+training.train.filtered = data.frame(predict(dummyVars("classe ~ .", data=training.train.filtered), newdata=training.train.filtered),classe=training.train.filtered$classe)
+training.validation.filtered = data.frame(predict(dummyVars("classe ~ .", data=training.validation.filtered), newdata=training.validation.filtered),classe=training.validation.filtered$classe)
+```
+
+A short look on the the classes of the columns in training and testing outlines that the data types for testing are different, because the NA values of certain columns in testing data are interpreted not correctly.
+
+```{r}
+sapply(training.train.filtered, class)
+df<-data.frame(sapply(testing.filtered, class))
+df
+columns<-rownames(df)
+columns<-columns[df[,1]=="logical"]
+for(i in columns) {
+  testing.filtered[,i] <- as.numeric(as.character(testing.filtered[,i]))
+}
+sapply(testing.filtered, class)
+testing.filtered = data.frame(predict(dummyVars("problem_id ~ .", data=testing.filtered), newdata=testing.filtered))
+```
+The training data has one more column than the testing data, which is the predictor variable.
+```{r}
+dim(training.train.filtered)
+dim(training.validation.filtered)
+dim(testing.filtered)
+```
+
+## 2.4 Classification Problem
+For this problem, we can use a decision tree, because it implicitly executes feature selection and can be interpreted well by non-technical persons.
+
+## 2.4.1 Learn the model
+```{r}
+library(rpart)
+set.seed(34534)
+modelFit<-rpart(classe~.,data=training.train.filtered)
+modelFit
+```
+Unfortunately the caret package gave some strange errors, because it did not predict all instances for the validation data set. Therefore cross validation was omitted here, although this would be important for the final evaluation of the performance.
+## 2.4.2 Predict the class for the validation data and evaluate the performance
+```{r}
+pred1<-predict(modelFit,newdata=training.validation.filtered, type="class")
+accuracy <- table(pred1, training.validation.filtered$classe)
+sum(diag(accuracy))/sum(accuracy)
+```
+
+## 2.4.3 Predict the class for the testing data
+```{r}
+pred2<-predict(modelFit,newdata=testing.filtered, type="prob")
+pred2
+```
